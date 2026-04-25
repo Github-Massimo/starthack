@@ -380,6 +380,12 @@ button {
   color: var(--text);
 }
 
+.ghost-chip-active {
+  background: #111111;
+  border-color: #111111;
+  color: #ffffff;
+}
+
 .section-intro {
   padding: 4px 4px 2px;
 }
@@ -656,6 +662,25 @@ button {
 .filter-chip:hover,
 .toggle-chip:hover {
   transform: translateY(-1px);
+}
+
+.experience-builder-preview {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 15px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.84), transparent 24%),
+    linear-gradient(180deg, rgba(250, 249, 246, 0.96), rgba(239, 237, 232, 0.94));
+}
+
+.experience-builder-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .market-card {

@@ -166,6 +166,7 @@ type AppState = {
   platformCashCents: number;
   guestWallets: GuestWallet[];
   companyAccounts: CompanyAccount[];
+  experiences: Experience[];
   activities: Activity[];
   payments: Payment[];
   pointsEntries: PointsEntry[];
@@ -191,7 +192,7 @@ const users: User[] = [
   { id: "ops-admin", name: "Ops Admin", role: "ops" }
 ];
 
-const experiences: Experience[] = [
+const initialExperiences: Experience[] = [
   {
     id: "exp-jungfraujoch",
     title: "Jungfraujoch Snowline Pass",
@@ -554,6 +555,7 @@ const initialState: AppState = {
     }
   ],
   companyAccounts: buildCompanyAccounts(initialPayments),
+  experiences: initialExperiences,
   activities: [
     {
       id: "act-1",
@@ -772,6 +774,16 @@ export function MobileWalletApp() {
   const [selectedExperienceForCheckout, setSelectedExperienceForCheckout] = useState<Experience | null>(null);
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<"no-points" | "some-points" | "max-coins" | null>(null);
   const [checkoutPointsAmount, setCheckoutPointsAmount] = useState(0);
+  const [newExperienceTitle, setNewExperienceTitle] = useState("");
+  const [newExperienceCategory, setNewExperienceCategory] = useState<ExperienceCategory>("Travel");
+  const [newExperiencePrice, setNewExperiencePrice] = useState("49");
+  const [newExperienceDuration, setNewExperienceDuration] = useState("Half day");
+  const [newExperienceTag, setNewExperienceTag] = useState("New");
+  const [newExperienceOffer, setNewExperienceOffer] = useState("New drop");
+  const [newExperienceSummary, setNewExperienceSummary] = useState("");
+  const [newExperienceMaxCoins, setNewExperienceMaxCoins] = useState("49");
+  const [newExperienceSustainable, setNewExperienceSustainable] = useState(false);
+  const [newExperienceFeatured, setNewExperienceFeatured] = useState(false);
   const deferredExperienceSearch = useDeferredValue(experienceSearch);
 
   useEffect(() => {
@@ -841,6 +853,10 @@ export function MobileWalletApp() {
   const currentCompanyStoreRequests =
     currentCompany !== null
       ? state.storeRequests.filter((request) => request.companyId === currentCompany.id)
+      : [];
+  const currentCompanyExperiences =
+    currentCompany !== null
+      ? state.experiences.filter((experience) => experience.companyId === currentCompany.id)
       : [];
 
   const availablePointsBalance =
@@ -931,7 +947,7 @@ export function MobileWalletApp() {
           (request) => request.code.toLowerCase() === scanCode.trim().toLowerCase()
         ) ?? null
       : null;
-  const filteredExperiences = experiences
+  const filteredExperiences = state.experiences
     .filter((experience) => {
       const matchesFilter =
         activeExperienceFilter === "All"
@@ -974,14 +990,14 @@ export function MobileWalletApp() {
 
   function categoryCount(filter: ExperienceFilter) {
     if (filter === "All") {
-      return experiences.length;
+      return state.experiences.length;
     }
 
     if (filter === "Deals") {
-      return experiences.filter((experience) => experience.isDeal).length;
+      return state.experiences.filter((experience) => experience.isDeal).length;
     }
 
-    return experiences.filter((experience) => experience.category === filter).length;
+    return state.experiences.filter((experience) => experience.category === filter).length;
   }
 
   function paymentBreakdown(amountCents: number) {
@@ -1044,15 +1060,29 @@ export function MobileWalletApp() {
     setShowScanPanel(false);
     setShowQrGenerator(false);
     setScanCode("");
+    resetExperienceDraft();
     addNotice({
       tone: "success",
       text:
         user.role === "guest"
-          ? `${user.name} signed in.`
+            ? `${user.name} signed in.`
           : user.role === "partner"
             ? `${user.name} signed in for company view.`
             : `${user.name} signed in for settlement ops.`
     });
+  }
+
+  function resetExperienceDraft() {
+    setNewExperienceTitle("");
+    setNewExperienceCategory("Travel");
+    setNewExperiencePrice("49");
+    setNewExperienceDuration("Half day");
+    setNewExperienceTag("New");
+    setNewExperienceOffer("New drop");
+    setNewExperienceSummary("");
+    setNewExperienceMaxCoins("49");
+    setNewExperienceSustainable(false);
+    setNewExperienceFeatured(false);
   }
 
   function signOut() {
@@ -1062,6 +1092,7 @@ export function MobileWalletApp() {
     setShowScanPanel(false);
     setShowQrGenerator(false);
     setScanCode("");
+    resetExperienceDraft();
     addNotice({
       tone: "default",
       text: "Signed out."
@@ -1474,6 +1505,64 @@ export function MobileWalletApp() {
     addNotice({
       tone: "success",
       text: `${reward.title} claimed. +${pointsAwarded} points.`
+    });
+  }
+
+  function handleCreateExperience() {
+    if (!currentUser || currentUser.role !== "partner" || !currentCompany) {
+      return;
+    }
+
+    const title = newExperienceTitle.trim();
+    const summary = newExperienceSummary.trim();
+    const tag = newExperienceTag.trim() || "New";
+    const offer = newExperienceOffer.trim() || "New drop";
+    const duration = newExperienceDuration.trim() || "Flexible";
+    const priceCents = Math.round(Number(newExperiencePrice) * 100);
+    const requestedMaxCoinsCents = Math.round(Number(newExperienceMaxCoins) * 100);
+
+    if (title.length < 3 || summary.length < 8 || !Number.isFinite(priceCents) || priceCents <= 0) {
+      addNotice({
+        tone: "warning",
+        text: "Enter a title, summary, and valid price."
+      });
+      return;
+    }
+
+    const maxCoinsPaidCents = Math.max(0, Math.min(priceCents, Number.isFinite(requestedMaxCoinsCents) ? requestedMaxCoinsCents : priceCents));
+    const nextExperience: Experience = {
+      id: makeId("exp"),
+      title,
+      village: currentCompany.village,
+      companyId: currentCompany.id,
+      companyName: currentCompany.name,
+      category: newExperienceCategory,
+      priceCents,
+      duration,
+      tag,
+      summary,
+      offer,
+      sustainable: newExperienceSustainable,
+      isDeal: true,
+      featured: newExperienceFeatured,
+      maxCoinsPaidCents
+    };
+
+    setState((previous) => ({
+      ...previous,
+      experiences: [
+        nextExperience,
+        ...previous.experiences.map((experience) =>
+          newExperienceFeatured && experience.companyId === currentCompany.id
+            ? { ...experience, featured: false }
+            : experience
+        )
+      ]
+    }));
+    resetExperienceDraft();
+    addNotice({
+      tone: "success",
+      text: `${nextExperience.title} added to the marketplace.`
     });
   }
 
@@ -2235,9 +2324,7 @@ export function MobileWalletApp() {
                         <p>Offers live for guests from this company.</p>
                       </div>
                       <div className="list-side">
-                        <span className="amount">
-                          {experiences.filter((experience) => experience.companyId === currentCompany.id).length}
-                        </span>
+                        <span className="amount">{currentCompanyExperiences.length}</span>
                       </div>
                     </div>
                   </div>
@@ -2863,17 +2950,150 @@ export function MobileWalletApp() {
 
           {currentUser.role === "partner" && activeTab === "experiences" && currentCompany ? (
             <>
-              <section className="surface-card">
-                <div className="section-head">
-                  <div>
-                    <h2>Experiences</h2>
+                <section className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <h2>Create experience</h2>
+                    </div>
+                    <span className="stat-pill">{currentCompany.name}</span>
                   </div>
-                  <span className="stat-pill">{currentCompany.name}</span>
-                </div>
-                <div className="list-stack">
-                  {experiences
-                    .filter((experience) => experience.companyId === currentCompany.id)
-                    .map((experience) => (
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Title</span>
+                      <input
+                        placeholder="Sunrise rail pass"
+                        type="text"
+                        value={newExperienceTitle}
+                        onChange={(event) => setNewExperienceTitle(event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Summary</span>
+                      <input
+                        placeholder="Short premium description for guests"
+                        type="text"
+                        value={newExperienceSummary}
+                        onChange={(event) => setNewExperienceSummary(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="form-grid compact-grid">
+                    <label className="field">
+                      <span>Category</span>
+                      <select
+                        value={newExperienceCategory}
+                        onChange={(event) => setNewExperienceCategory(event.target.value as ExperienceCategory)}
+                      >
+                        <option>Travel</option>
+                        <option>Fashion</option>
+                        <option>Sport</option>
+                        <option>Food</option>
+                        <option>Wellness</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Price</span>
+                      <input
+                        min="1"
+                        step="1"
+                        type="number"
+                        value={newExperiencePrice}
+                        onChange={(event) => setNewExperiencePrice(event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Duration</span>
+                      <input
+                        type="text"
+                        value={newExperienceDuration}
+                        onChange={(event) => setNewExperienceDuration(event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Max coins</span>
+                      <input
+                        min="0"
+                        step="1"
+                        type="number"
+                        value={newExperienceMaxCoins}
+                        onChange={(event) => setNewExperienceMaxCoins(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="form-grid compact-grid">
+                    <label className="field">
+                      <span>Tag</span>
+                      <input
+                        type="text"
+                        value={newExperienceTag}
+                        onChange={(event) => setNewExperienceTag(event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Offer line</span>
+                      <input
+                        type="text"
+                        value={newExperienceOffer}
+                        onChange={(event) => setNewExperienceOffer(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="chip-row">
+                    <button
+                      className={`ghost-chip ${newExperienceSustainable ? "ghost-chip-active" : ""}`}
+                      onClick={() => setNewExperienceSustainable((value) => !value)}
+                      type="button"
+                    >
+                      {newExperienceSustainable ? "Sustainable" : "Mark sustainable"}
+                    </button>
+                    <button
+                      className={`ghost-chip ${newExperienceFeatured ? "ghost-chip-active" : ""}`}
+                      onClick={() => setNewExperienceFeatured((value) => !value)}
+                      type="button"
+                    >
+                      {newExperienceFeatured ? "Featured" : "Make featured"}
+                    </button>
+                  </div>
+                  <div className="experience-builder-preview">
+                    <div className="experience-builder-top">
+                      <div className="chip-row featured-chip-row">
+                        <span className="soft-chip soft-chip-dark">{newExperienceCategory}</span>
+                        {newExperienceSustainable ? <span className="soft-chip soft-chip-green">Sustainable</span> : null}
+                        <span className="soft-chip soft-chip-dark">{newExperienceOffer || "New drop"}</span>
+                      </div>
+                      <span className="market-price">
+                        {formatCurrency(Math.max(0, Math.round(Number(newExperiencePrice || 0) * 100)))}
+                      </span>
+                    </div>
+                    <div className="discover-card-copy">
+                      <strong>{newExperienceTitle || "New experience title"}</strong>
+                      <p>{newExperienceSummary || "A polished marketplace summary will appear here."}</p>
+                    </div>
+                    <div className="discover-card-footer">
+                      <span className="mini-meta">
+                        {newExperienceDuration || "Flexible"} • Max coins{" "}
+                        {formatCurrency(Math.max(0, Math.round(Number(newExperienceMaxCoins || 0) * 100)))}
+                      </span>
+                      <span className="discover-link">{newExperienceTag || "New"}</span>
+                    </div>
+                  </div>
+                  <button className="primary-button" onClick={handleCreateExperience} type="button">
+                    Publish experience
+                  </button>
+                  <div className="mini-meta">
+                    New experiences publish directly into the guest marketplace, partner catalog, and ops view.
+                  </div>
+                </section>
+
+                <section className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <h2>Your catalog</h2>
+                    </div>
+                    <span className="stat-pill">{currentCompanyExperiences.length}</span>
+                  </div>
+                  <div className="list-stack">
+                    {currentCompanyExperiences.map((experience) => (
                       <div className="list-row" key={experience.id}>
                         <div>
                           <strong>{experience.title}</strong>
@@ -2882,6 +3102,8 @@ export function MobileWalletApp() {
                           </p>
                           <p className="mini-meta">
                             Max coin payment: {formatCurrency(experience.maxCoinsPaidCents)}
+                            {experience.sustainable ? " • Sustainable" : ""}
+                            {experience.featured ? " • Featured" : ""}
                           </p>
                         </div>
                         <div className="list-side">
@@ -2890,11 +3112,11 @@ export function MobileWalletApp() {
                         </div>
                       </div>
                     ))}
-                </div>
-                <div className="mini-meta">
-                  Guests will see payment options: no points, some points, or max coins. You set the max coins per experience above.
-                </div>
-              </section>
+                  </div>
+                  <div className="mini-meta">
+                    Guests see the same pricing and payment options you configure here.
+                  </div>
+                </section>
             </>
           ) : null}
 
@@ -2907,7 +3129,7 @@ export function MobileWalletApp() {
                   </div>
                 </div>
                 <div className="list-stack">
-                  {experiences.map((experience) => (
+                  {state.experiences.map((experience) => (
                     <div className="list-row" key={experience.id}>
                       <div>
                         <strong>{experience.title}</strong>

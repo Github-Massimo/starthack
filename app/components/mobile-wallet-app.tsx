@@ -7,6 +7,7 @@ type TabId = "you" | "wallet" | "experiences" | "more";
 type BatchStatus = "open" | "paid";
 type ActivityTone = "credit" | "debit" | "neutral";
 type PaymentStatus = "awaiting_settlement" | "batched" | "settled";
+type StoreRequestStatus = "active" | "paid" | "expired";
 type ExperienceFilter = "All" | "Deals" | "Travel" | "Fashion" | "Sport" | "Food" | "Wellness";
 type ExperienceCategory = Exclude<ExperienceFilter, "All" | "Deals">;
 
@@ -28,7 +29,6 @@ type GuestWallet = {
   userId: string;
   availableBalanceCents: number;
   lifetimePaidCents: number;
-  pointsBalance: number;
 };
 
 type CompanyAccount = {
@@ -48,6 +48,7 @@ type Experience = {
   tag: string;
   summary: string;
   offer: string;
+  sustainable: boolean;
   isDeal: boolean;
   featured: boolean;
 };
@@ -72,9 +73,72 @@ type Payment = {
   amountCents: number;
   cashPaidCents: number;
   pointsUsed: number;
+  source: "experience" | "store_request";
   status: PaymentStatus;
   timeLabel: string;
   batchId?: string;
+};
+
+type StorePaymentRequest = {
+  id: string;
+  code: string;
+  companyId: string;
+  companyName: string;
+  village: string;
+  title: string;
+  amountCents: number;
+  status: StoreRequestStatus;
+  createdAt: string;
+  paidAt?: string;
+  paidByUserId?: string;
+};
+
+type PointsEntrySource = "payment_cashback" | "hotel_booking" | "sustainability_bonus" | "redeemed";
+
+type PointsEntry = {
+  id: string;
+  userId: string;
+  kind: "earn" | "spend";
+  source: PointsEntrySource;
+  label: string;
+  detail: string;
+  points: number;
+  remainingPoints?: number;
+  timeLabel: string;
+};
+
+type HotelOffer = {
+  id: string;
+  name: string;
+  village: string;
+  amountCents: number;
+  nights: number;
+};
+
+type HotelBooking = {
+  id: string;
+  userId: string;
+  hotelId: string;
+  hotelName: string;
+  village: string;
+  amountCents: number;
+  nights: number;
+  pointsAwarded: number;
+  timeLabel: string;
+};
+
+type SustainabilityReward = {
+  id: string;
+  title: string;
+  detail: string;
+  referenceAmountCents: number;
+};
+
+type SustainabilityClaim = {
+  id: string;
+  userId: string;
+  rewardId: string;
+  timeLabel: string;
 };
 
 type SettlementBatch = {
@@ -103,6 +167,10 @@ type AppState = {
   companyAccounts: CompanyAccount[];
   activities: Activity[];
   payments: Payment[];
+  pointsEntries: PointsEntry[];
+  hotelBookings: HotelBooking[];
+  sustainabilityClaims: SustainabilityClaim[];
+  storeRequests: StorePaymentRequest[];
   batches: SettlementBatch[];
 };
 
@@ -135,6 +203,7 @@ const experiences: Experience[] = [
     tag: "Summit",
     summary: "Rail climb, glacier platform, panoramic access.",
     offer: "Save CHF 12",
+    sustainable: true,
     isDeal: true,
     featured: true
   },
@@ -150,6 +219,7 @@ const experiences: Experience[] = [
     tag: "Action",
     summary: "Cable car access with cliff route entry.",
     offer: "Weekend pick",
+    sustainable: false,
     isDeal: true,
     featured: false
   },
@@ -165,6 +235,7 @@ const experiences: Experience[] = [
     tag: "Layered",
     summary: "Shell, gloves, goggles, and slope-ready extras.",
     offer: "Bundle value",
+    sustainable: false,
     isDeal: true,
     featured: false
   },
@@ -180,6 +251,7 @@ const experiences: Experience[] = [
     tag: "Local",
     summary: "Morning café credit for pastries, brunch, and coffee.",
     offer: "Most booked",
+    sustainable: true,
     isDeal: false,
     featured: false
   },
@@ -195,6 +267,7 @@ const experiences: Experience[] = [
     tag: "Recharge",
     summary: "Sauna, stretch room, and fast recovery treatment.",
     offer: "Late arrival slot",
+    sustainable: true,
     isDeal: false,
     featured: false
   },
@@ -210,6 +283,7 @@ const experiences: Experience[] = [
     tag: "Easy",
     summary: "Short-hop mobility pass between key valley stops.",
     offer: "New route",
+    sustainable: true,
     isDeal: false,
     featured: false
   }
@@ -225,6 +299,50 @@ const experienceFilters: ExperienceFilter[] = [
   "Wellness"
 ];
 
+const hotelOffers: HotelOffer[] = [
+  {
+    id: "hotel-eiger",
+    name: "Eiger Panorama Lodge",
+    village: "Grindelwald",
+    amountCents: 150000,
+    nights: 3
+  },
+  {
+    id: "hotel-wengen",
+    name: "Wengen Crest Hotel",
+    village: "Wengen",
+    amountCents: 118000,
+    nights: 2
+  }
+];
+
+const sustainabilityRewards: SustainabilityReward[] = [
+  {
+    id: "sustain-sbb",
+    title: "Arrive by SBB",
+    detail: "Low-emission arrival reward.",
+    referenceAmountCents: 24000
+  },
+  {
+    id: "sustain-cleaning",
+    title: "Skip room cleaning",
+    detail: "Reduce laundry and housekeeping impact.",
+    referenceAmountCents: 9000
+  },
+  {
+    id: "sustain-veg",
+    title: "Choose vegetarian",
+    detail: "Lower-impact meal option.",
+    referenceAmountCents: 5000
+  },
+  {
+    id: "sustain-offpeak",
+    title: "Book off-peak slot",
+    detail: "Helps smooth demand and capacity.",
+    referenceAmountCents: 18000
+  }
+];
+
 const initialPayments: Payment[] = [
   {
     id: "payment-a",
@@ -236,6 +354,7 @@ const initialPayments: Payment[] = [
     amountCents: 6200,
     cashPaidCents: 6200,
     pointsUsed: 0,
+    source: "experience",
     status: "settled",
     timeLabel: "Yesterday",
     batchId: "batch-1"
@@ -250,6 +369,7 @@ const initialPayments: Payment[] = [
     amountCents: 2800,
     cashPaidCents: 2800,
     pointsUsed: 0,
+    source: "store_request",
     status: "settled",
     timeLabel: "Yesterday",
     batchId: "batch-1"
@@ -264,8 +384,117 @@ const initialPayments: Payment[] = [
     amountCents: 4200,
     cashPaidCents: 4200,
     pointsUsed: 0,
+    source: "experience",
     status: "awaiting_settlement",
     timeLabel: "Now"
+  }
+];
+
+const initialStoreRequests: StorePaymentRequest[] = [
+  {
+    id: "request-cafe-1",
+    code: "JW-CAFE-1847",
+    companyId: "company-cafe",
+    companyName: "Lauterbrunnen Valley Café",
+    village: "Lauterbrunnen",
+    title: "Valley lunch tab",
+    amountCents: 2200,
+    status: "active",
+    createdAt: "Now"
+  },
+  {
+    id: "request-lift-1",
+    code: "JW-LIFT-1201",
+    companyId: "company-lift",
+    companyName: "Grindelwald Lift Pass",
+    village: "Grindelwald",
+    title: "Lift desk upgrade",
+    amountCents: 2800,
+    status: "paid",
+    createdAt: "Yesterday",
+    paidAt: "Yesterday",
+    paidByUserId: "guest-maya"
+  }
+];
+
+const initialHotelBookings: HotelBooking[] = [
+  {
+    id: "booking-1",
+    userId: "guest-maya",
+    hotelId: "hotel-eiger",
+    hotelName: "Eiger Panorama Lodge",
+    village: "Grindelwald",
+    amountCents: 150000,
+    nights: 3,
+    pointsAwarded: 15000,
+    timeLabel: "Yesterday"
+  }
+];
+
+const initialSustainabilityClaims: SustainabilityClaim[] = [
+  {
+    id: "claim-1",
+    userId: "guest-maya",
+    rewardId: "sustain-sbb",
+    timeLabel: "Yesterday"
+  }
+];
+
+const initialPointsEntries: PointsEntry[] = [
+  {
+    id: "points-hotel-1",
+    userId: "guest-maya",
+    kind: "earn",
+    source: "hotel_booking",
+    label: "Eiger Panorama Lodge",
+    detail: "Hotel booking reward",
+    points: 15000,
+    remainingPoints: 15000,
+    timeLabel: "Yesterday"
+  },
+  {
+    id: "points-sustain-1",
+    userId: "guest-maya",
+    kind: "earn",
+    source: "sustainability_bonus",
+    label: "Arrive by SBB",
+    detail: "Sustainable choice bonus",
+    points: 1200,
+    remainingPoints: 1200,
+    timeLabel: "Yesterday"
+  },
+  {
+    id: "points-cashback-1",
+    userId: "guest-maya",
+    kind: "earn",
+    source: "payment_cashback",
+    label: "Lift access pass",
+    detail: "2% cashback in points",
+    points: 124,
+    remainingPoints: 124,
+    timeLabel: "Yesterday"
+  },
+  {
+    id: "points-cashback-2",
+    userId: "guest-maya",
+    kind: "earn",
+    source: "payment_cashback",
+    label: "Alpine Layer Pack",
+    detail: "2% cashback in points",
+    points: 84,
+    remainingPoints: 84,
+    timeLabel: "Now"
+  },
+  {
+    id: "points-cashback-3",
+    userId: "guest-jonas",
+    kind: "earn",
+    source: "payment_cashback",
+    label: "Valley brunch credit",
+    detail: "2% cashback in points",
+    points: 56,
+    remainingPoints: 56,
+    timeLabel: "Yesterday"
   }
 ];
 
@@ -309,14 +538,12 @@ const initialState: AppState = {
     {
       userId: "guest-maya",
       availableBalanceCents: 10600,
-      lifetimePaidCents: 10400,
-      pointsBalance: 1
+      lifetimePaidCents: 10400
     },
     {
       userId: "guest-jonas",
       availableBalanceCents: 11200,
-      lifetimePaidCents: 2800,
-      pointsBalance: 0
+      lifetimePaidCents: 2800
     }
   ],
   companyAccounts: buildCompanyAccounts(initialPayments),
@@ -334,7 +561,7 @@ const initialState: AppState = {
       id: "act-2",
       userId: "guest-maya",
       title: "Grindelwald Lift Pass",
-      detail: "Paid",
+      detail: "Paid • +124 pts",
       amountCents: -6200,
       tone: "debit",
       timeLabel: "Yesterday"
@@ -343,7 +570,7 @@ const initialState: AppState = {
       id: "act-3",
       userId: "guest-maya",
       title: "Murren Alpine Rentals",
-      detail: "Paid • +1 pt",
+      detail: "Paid • +84 pts",
       amountCents: -4200,
       tone: "debit",
       timeLabel: "Now"
@@ -361,13 +588,35 @@ const initialState: AppState = {
       id: "act-5",
       userId: "guest-jonas",
       title: "Lauterbrunnen Valley Café",
-      detail: "Paid",
+      detail: "Paid • +56 pts",
       amountCents: -2800,
       tone: "debit",
+      timeLabel: "Yesterday"
+    },
+    {
+      id: "act-6",
+      userId: "guest-maya",
+      title: "Eiger Panorama Lodge",
+      detail: "Booked • +15,000 pts",
+      amountCents: 0,
+      tone: "neutral",
+      timeLabel: "Yesterday"
+    },
+    {
+      id: "act-7",
+      userId: "guest-maya",
+      title: "Arrive by SBB",
+      detail: "Sustainable choice • +1,200 pts",
+      amountCents: 0,
+      tone: "neutral",
       timeLabel: "Yesterday"
     }
   ],
   payments: initialPayments,
+  pointsEntries: initialPointsEntries,
+  hotelBookings: initialHotelBookings,
+  sustainabilityClaims: initialSustainabilityClaims,
+  storeRequests: initialStoreRequests,
   batches: initialBatches
 };
 
@@ -382,20 +631,81 @@ function makeId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function rewardPointsForSpend(spendCents: number) {
-  return Math.floor(spendCents / 10000);
+function makeRequestCode(companyName: string) {
+  const companySlug = companyName.replace(/[^A-Za-z]/g, "").slice(0, 4).toUpperCase() || "JW";
+  return `JW-${companySlug}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function progressToNextPointCents(spendCents: number) {
-  return spendCents % 10000;
-}
-
-function pointsEarnedForPayment(currentSpendCents: number, paymentCents: number) {
-  return rewardPointsForSpend(currentSpendCents + paymentCents) - rewardPointsForSpend(currentSpendCents);
+function buildQrCells(seed: string) {
+  const size = 21;
+  return Array.from({ length: size * size }, (_, index) => {
+    const value = seed.charCodeAt(index % seed.length) + index * 17 + seed.length * 13;
+    return value % 5 === 0 || value % 7 === 0;
+  });
 }
 
 function pointsValueCents(points: number) {
-  return points * 100;
+  return points;
+}
+
+function ratePointsForAmount(amountCents: number, rateBps: number) {
+  return Math.round(amountCents * (rateBps / 10000));
+}
+
+function cashbackPointsForPayment(cashPaidCents: number, rateBps = 200) {
+  return ratePointsForAmount(cashPaidCents, rateBps);
+}
+
+function hotelRewardPoints(amountCents: number) {
+  return Math.round(amountCents * 0.1);
+}
+
+function sustainabilityActionPoints(amountCents: number) {
+  return ratePointsForAmount(amountCents, 500);
+}
+
+function availablePointsForUser(entries: PointsEntry[], userId: string) {
+  return entries
+    .filter((entry) => entry.userId === userId && entry.kind === "earn")
+    .reduce((sum, entry) => sum + (entry.remainingPoints ?? 0), 0);
+}
+
+function addPointsEntry(
+  entries: PointsEntry[],
+  entry: Omit<PointsEntry, "id">
+) {
+  return [
+    ...entries,
+    {
+      ...entry,
+      id: makeId("points")
+    }
+  ];
+}
+
+function redeemPointsEntries(entries: PointsEntry[], userId: string, pointsToRedeem: number) {
+  if (pointsToRedeem <= 0) {
+    return entries;
+  }
+
+  let remainingToRedeem = pointsToRedeem;
+  return entries.map((entry) => {
+    if (
+      remainingToRedeem === 0 ||
+      entry.userId !== userId ||
+      entry.kind !== "earn" ||
+      (entry.remainingPoints ?? 0) <= 0
+    ) {
+      return entry;
+    }
+
+    const redeemFromEntry = Math.min(entry.remainingPoints ?? 0, remainingToRedeem);
+    remainingToRedeem -= redeemFromEntry;
+    return {
+      ...entry,
+      remainingPoints: (entry.remainingPoints ?? 0) - redeemFromEntry
+    };
+  });
 }
 
 function amountClass(tone: ActivityTone) {
@@ -408,6 +718,12 @@ function paymentStatusLabel(status: PaymentStatus) {
   if (status === "awaiting_settlement") return "Awaiting";
   if (status === "batched") return "Batched";
   return "Settled";
+}
+
+function storeRequestStatusLabel(status: StoreRequestStatus) {
+  if (status === "active") return "Open";
+  if (status === "paid") return "Paid";
+  return "Expired";
 }
 
 function roleLabel(role: Role) {
@@ -441,6 +757,11 @@ export function MobileWalletApp() {
   const [usePointsOnNextPayment, setUsePointsOnNextPayment] = useState(true);
   const [experienceSearch, setExperienceSearch] = useState("");
   const [activeExperienceFilter, setActiveExperienceFilter] = useState<ExperienceFilter>("All");
+  const [showScanPanel, setShowScanPanel] = useState(false);
+  const [showQrGenerator, setShowQrGenerator] = useState(false);
+  const [scanCode, setScanCode] = useState("");
+  const [storeRequestTitle, setStoreRequestTitle] = useState("Counter payment");
+  const [storeRequestAmount, setStoreRequestAmount] = useState("18");
   const deferredExperienceSearch = useDeferredValue(experienceSearch);
 
   useEffect(() => {
@@ -484,6 +805,18 @@ export function MobileWalletApp() {
     currentUser?.role === "guest"
       ? state.activities.filter((activity) => activity.userId === currentUser.id)
       : [];
+  const currentGuestPointsEntries =
+    currentUser?.role === "guest"
+      ? state.pointsEntries.filter((entry) => entry.userId === currentUser.id)
+      : [];
+  const currentGuestHotelBookings =
+    currentUser?.role === "guest"
+      ? state.hotelBookings.filter((booking) => booking.userId === currentUser.id)
+      : [];
+  const currentGuestSustainabilityClaims =
+    currentUser?.role === "guest"
+      ? state.sustainabilityClaims.filter((claim) => claim.userId === currentUser.id)
+      : [];
 
   const currentCompanyPayments =
     currentCompany !== null
@@ -495,10 +828,14 @@ export function MobileWalletApp() {
           batch.payouts.some((payout) => payout.companyId === currentCompany.id)
         )
       : [];
+  const currentCompanyStoreRequests =
+    currentCompany !== null
+      ? state.storeRequests.filter((request) => request.companyId === currentCompany.id)
+      : [];
 
-  const availablePointsBalance = currentWallet?.pointsBalance ?? 0;
-  const pointsProgressCents = progressToNextPointCents(currentWallet?.lifetimePaidCents ?? 0);
-  const nextPointRemainingCents = 10000 - pointsProgressCents;
+  const availablePointsBalance =
+    currentUser?.role === "guest" ? availablePointsForUser(state.pointsEntries, currentUser.id) : 0;
+  const availablePointsValueCents = pointsValueCents(availablePointsBalance);
   const normalizedExperienceSearch = deferredExperienceSearch.trim().toLowerCase();
 
   const unsettledPayments = state.payments.filter(
@@ -531,6 +868,28 @@ export function MobileWalletApp() {
     .reduce((sum, payment) => sum + payment.amountCents, 0);
   const currentGuestTopUpCount = currentGuestActivities.filter((activity) => activity.amountCents > 0).length;
   const currentGuestLatestActivity = currentGuestActivities[0] ?? null;
+  const currentGuestTotalEarnedPoints = currentGuestPointsEntries
+    .filter((entry) => entry.kind === "earn")
+    .reduce((sum, entry) => sum + entry.points, 0);
+  const currentGuestTotalRedeemedPoints = currentGuestPointsEntries
+    .filter((entry) => entry.kind === "spend")
+    .reduce((sum, entry) => sum + entry.points, 0);
+  const currentGuestCashbackPoints = currentGuestPointsEntries
+    .filter((entry) => entry.source === "payment_cashback")
+    .reduce((sum, entry) => sum + entry.points, 0);
+  const currentGuestHotelPoints = currentGuestPointsEntries
+    .filter((entry) => entry.source === "hotel_booking")
+    .reduce((sum, entry) => sum + entry.points, 0);
+  const currentGuestSustainabilityPoints = currentGuestPointsEntries
+    .filter((entry) => entry.source === "sustainability_bonus")
+    .reduce((sum, entry) => sum + entry.points, 0);
+  const currentGuestLatestPointsEntry = [...currentGuestPointsEntries].reverse()[0] ?? null;
+  const availableSustainabilityRewards =
+    currentUser?.role === "guest"
+      ? sustainabilityRewards.filter(
+          (reward) => !currentGuestSustainabilityClaims.some((claim) => claim.rewardId === reward.id)
+        )
+      : [];
   const currentCompanyAwaitingCents = currentCompanyPayments
     .filter((payment) => payment.status === "awaiting_settlement")
     .reduce((sum, payment) => sum + payment.amountCents, 0);
@@ -539,6 +898,12 @@ export function MobileWalletApp() {
     .reduce((sum, payment) => sum + payment.amountCents, 0);
   const currentCompanyPaidBatchCount = currentCompanyBatches.filter((batch) => batch.status === "paid").length;
   const currentCompanyLatestBatch = currentCompanyBatches[0] ?? null;
+  const currentCompanyActiveStoreRequest = currentCompanyStoreRequests.find(
+    (request) => request.status === "active"
+  ) ?? null;
+  const currentCompanyOpenStoreRequestCount = currentCompanyStoreRequests.filter(
+    (request) => request.status === "active"
+  ).length;
   const totalCompanyAvailableFundsCents = state.companyAccounts.reduce(
     (sum, account) => sum + account.availableBalanceCents,
     0
@@ -549,6 +914,13 @@ export function MobileWalletApp() {
   const opsPaidBatchCount = state.batches.filter((batch) => batch.status === "paid").length;
   const opsOpenBatchCompanyCount = openBatch?.payouts.length ?? 0;
   const largestPartnerExposure = partnerExposure[0] ?? null;
+  const activeStoreRequests = state.storeRequests.filter((request) => request.status === "active");
+  const scannedStoreRequest =
+    currentUser?.role === "guest"
+      ? state.storeRequests.find(
+          (request) => request.code.toLowerCase() === scanCode.trim().toLowerCase()
+        ) ?? null
+      : null;
   const filteredExperiences = experiences
     .filter((experience) => {
       const matchesFilter =
@@ -602,16 +974,20 @@ export function MobileWalletApp() {
     return experiences.filter((experience) => experience.category === filter).length;
   }
 
-  function paymentPreview(experience: Experience) {
+  function paymentBreakdown(amountCents: number) {
     const pointsUsed =
       currentUser?.role === "guest" && currentWallet && usePointsOnNextPayment
-        ? Math.min(currentWallet.pointsBalance, Math.floor(experience.priceCents / 100))
+        ? Math.min(availablePointsBalance, amountCents)
         : 0;
 
     return {
       pointsUsed,
-      cashPaidCents: experience.priceCents - pointsValueCents(pointsUsed)
+      cashPaidCents: amountCents - pointsValueCents(pointsUsed)
     };
+  }
+
+  function paymentPreview(experience: Experience) {
+    return paymentBreakdown(experience.priceCents);
   }
 
   function addNotice(nextNotice: Notice) {
@@ -623,6 +999,9 @@ export function MobileWalletApp() {
     setActiveTab(defaultTabForRole(user.role));
     setExperienceSearch("");
     setActiveExperienceFilter("All");
+    setShowScanPanel(false);
+    setShowQrGenerator(false);
+    setScanCode("");
     addNotice({
       tone: "success",
       text:
@@ -638,6 +1017,9 @@ export function MobileWalletApp() {
     setCurrentUserId(null);
     setExperienceSearch("");
     setActiveExperienceFilter("All");
+    setShowScanPanel(false);
+    setShowQrGenerator(false);
+    setScanCode("");
     addNotice({
       tone: "default",
       text: "Signed out."
@@ -688,26 +1070,38 @@ export function MobileWalletApp() {
     });
   }
 
-  function handleDirectPayment(experience: Experience) {
+  function processGuestPayment(input: {
+    title: string;
+    companyId: string;
+    companyName: string;
+    village: string;
+    amountCents: number;
+    source: Payment["source"];
+    cashbackRateBps?: number;
+    activityTitle: string;
+    activityDetail?: string;
+    successText: string;
+    requestId?: string;
+  }) {
     if (!currentUser || currentUser.role !== "guest" || !currentWallet) {
-      return;
+      return false;
     }
 
     const pointsUsed =
       usePointsOnNextPayment
-        ? Math.min(currentWallet.pointsBalance, Math.floor(experience.priceCents / 100))
+        ? Math.min(availablePointsBalance, input.amountCents)
         : 0;
-    const cashPaidCents = experience.priceCents - pointsValueCents(pointsUsed);
+    const cashPaidCents = input.amountCents - pointsValueCents(pointsUsed);
 
     if (currentWallet.availableBalanceCents < cashPaidCents) {
       addNotice({
         tone: "warning",
         text: "Wallet balance is too low."
       });
-      return;
+      return false;
     }
 
-    const earnedPoints = pointsEarnedForPayment(currentWallet.lifetimePaidCents, cashPaidCents);
+    const earnedPoints = cashbackPointsForPayment(cashPaidCents, input.cashbackRateBps ?? 200);
 
     setState((previous) => ({
       ...previous,
@@ -716,8 +1110,7 @@ export function MobileWalletApp() {
           ? {
               ...wallet,
               availableBalanceCents: wallet.availableBalanceCents - cashPaidCents,
-              lifetimePaidCents: wallet.lifetimePaidCents + cashPaidCents,
-              pointsBalance: wallet.pointsBalance - pointsUsed + earnedPoints
+              lifetimePaidCents: wallet.lifetimePaidCents + cashPaidCents
             }
           : wallet
       ),
@@ -725,30 +1118,72 @@ export function MobileWalletApp() {
         {
           id: makeId("payment"),
           guestUserId: currentUser.id,
-          title: experience.title,
-          companyId: experience.companyId,
-          companyName: experience.companyName,
-          village: experience.village,
-          amountCents: experience.priceCents,
+          title: input.title,
+          companyId: input.companyId,
+          companyName: input.companyName,
+          village: input.village,
+          amountCents: input.amountCents,
           cashPaidCents,
           pointsUsed,
+          source: input.source,
           status: "awaiting_settlement",
           timeLabel: "Now"
         },
         ...previous.payments
       ],
+      pointsEntries: (() => {
+        let nextPointsEntries = redeemPointsEntries(previous.pointsEntries, currentUser.id, pointsUsed);
+
+        if (earnedPoints > 0) {
+          nextPointsEntries = addPointsEntry(nextPointsEntries, {
+            userId: currentUser.id,
+            kind: "earn",
+            source: "payment_cashback",
+            label: input.title,
+            detail: `${(input.cashbackRateBps ?? 200) / 100}% cashback in points`,
+            points: earnedPoints,
+            remainingPoints: earnedPoints,
+            timeLabel: "Now"
+          });
+        }
+
+        if (pointsUsed > 0) {
+          nextPointsEntries = addPointsEntry(nextPointsEntries, {
+            userId: currentUser.id,
+            kind: "spend",
+            source: "redeemed",
+            label: input.title,
+            detail: "Points redeemed",
+            points: pointsUsed,
+            timeLabel: "Now"
+          });
+        }
+
+        return nextPointsEntries;
+      })(),
+      storeRequests: previous.storeRequests.map((request) =>
+        request.id === input.requestId
+          ? {
+              ...request,
+              status: "paid",
+              paidAt: "Now",
+              paidByUserId: currentUser.id
+            }
+          : request
+      ),
       activities: [
         {
           id: makeId("activity"),
           userId: currentUser.id,
-          title: experience.companyName,
+          title: input.activityTitle,
           detail:
-            pointsUsed > 0
+            input.activityDetail ??
+            (pointsUsed > 0
               ? `Paid ${formatCurrency(cashPaidCents)} + ${pointsUsed} pt`
               : earnedPoints > 0
-                ? `Paid • +${earnedPoints} pt${earnedPoints > 1 ? "s" : ""}`
-                : "Paid",
-          amountCents: -experience.priceCents,
+                ? `Paid • +${earnedPoints} pts`
+                : "Paid"),
+          amountCents: -input.amountCents,
           tone: "debit",
           timeLabel: "Now"
         },
@@ -760,12 +1195,207 @@ export function MobileWalletApp() {
       tone: "success",
       text:
         pointsUsed > 0
-          ? `${experience.title} paid with ${pointsUsed} point${pointsUsed > 1 ? "s" : ""} and ${formatCurrency(cashPaidCents)} cash.`
+          ? `Paid ${input.successText} with ${pointsUsed} point${pointsUsed > 1 ? "s" : ""} and ${formatCurrency(cashPaidCents)} cash.`
           : earnedPoints > 0
-            ? `${experience.title} paid. +${earnedPoints} payback point${earnedPoints > 1 ? "s" : ""}.`
-            : `${experience.title} paid from wallet balance.`
+            ? `Paid ${input.successText}. +${earnedPoints} cashback points.`
+            : `Paid ${input.successText} from wallet balance.`
     });
     setActiveTab("more");
+    setShowScanPanel(false);
+    setScanCode("");
+    return true;
+  }
+
+  function handleDirectPayment(experience: Experience) {
+    processGuestPayment({
+      title: experience.title,
+      companyId: experience.companyId,
+      companyName: experience.companyName,
+      village: experience.village,
+      amountCents: experience.priceCents,
+      source: "experience",
+      cashbackRateBps: experience.sustainable ? 500 : 200,
+      activityTitle: experience.companyName,
+      successText: experience.title
+    });
+  }
+
+  function handleCreateStoreRequest() {
+    if (!currentUser || currentUser.role !== "partner" || !currentCompany) {
+      return;
+    }
+
+    const amountCents = Math.round(Number(storeRequestAmount) * 100);
+    const title = storeRequestTitle.trim();
+    if (!Number.isFinite(amountCents) || amountCents <= 0 || title.length === 0) {
+      addNotice({
+        tone: "warning",
+        text: "Enter a title and valid amount."
+      });
+      return;
+    }
+
+    const request: StorePaymentRequest = {
+      id: makeId("request"),
+      code: makeRequestCode(currentCompany.name),
+      companyId: currentCompany.id,
+      companyName: currentCompany.name,
+      village: currentCompany.village,
+      title,
+      amountCents,
+      status: "active",
+      createdAt: "Now"
+    };
+
+    setState((previous) => ({
+      ...previous,
+      storeRequests: [request, ...previous.storeRequests]
+    }));
+    setShowQrGenerator(true);
+    addNotice({
+      tone: "success",
+      text: `${request.code} ready to scan.`
+    });
+  }
+
+  function handlePayStoreRequest(request: StorePaymentRequest) {
+    if (request.status !== "active") {
+      addNotice({
+        tone: "warning",
+        text: "That QR request is no longer open."
+      });
+      return;
+    }
+
+    processGuestPayment({
+      title: request.title,
+      companyId: request.companyId,
+      companyName: request.companyName,
+      village: request.village,
+      amountCents: request.amountCents,
+      source: "store_request",
+      cashbackRateBps: 200,
+      activityTitle: request.companyName,
+      activityDetail: `Store QR • ${request.title}`,
+      successText: `${request.title} at ${request.companyName}`,
+      requestId: request.id
+    });
+  }
+
+  function handleBookHotel(offer: HotelOffer) {
+    if (!currentUser || currentUser.role !== "guest") {
+      return;
+    }
+
+    const existingBooking = state.hotelBookings.find(
+      (booking) => booking.userId === currentUser.id && booking.hotelId === offer.id
+    );
+    if (existingBooking) {
+      addNotice({
+        tone: "warning",
+        text: "This hotel reward was already booked."
+      });
+      return;
+    }
+
+    const pointsAwarded = hotelRewardPoints(offer.amountCents);
+    setState((previous) => ({
+      ...previous,
+      hotelBookings: [
+        {
+          id: makeId("booking"),
+          userId: currentUser.id,
+          hotelId: offer.id,
+          hotelName: offer.name,
+          village: offer.village,
+          amountCents: offer.amountCents,
+          nights: offer.nights,
+          pointsAwarded,
+          timeLabel: "Now"
+        },
+        ...previous.hotelBookings
+      ],
+      pointsEntries: addPointsEntry(previous.pointsEntries, {
+        userId: currentUser.id,
+        kind: "earn",
+        source: "hotel_booking",
+        label: offer.name,
+        detail: "10% hotel booking reward",
+        points: pointsAwarded,
+        remainingPoints: pointsAwarded,
+        timeLabel: "Now"
+      }),
+      activities: [
+        {
+          id: makeId("activity"),
+          userId: currentUser.id,
+          title: offer.name,
+          detail: `Booked • +${pointsAwarded} pts`,
+          amountCents: 0,
+          tone: "neutral",
+          timeLabel: "Now"
+        },
+        ...previous.activities
+      ]
+    }));
+    addNotice({
+      tone: "success",
+      text: `${offer.name} booked. +${pointsAwarded} points.`
+    });
+  }
+
+  function handleClaimSustainabilityReward(reward: SustainabilityReward) {
+    if (!currentUser || currentUser.role !== "guest") {
+      return;
+    }
+
+    if (state.sustainabilityClaims.some((claim) => claim.userId === currentUser.id && claim.rewardId === reward.id)) {
+      addNotice({
+        tone: "warning",
+        text: "This sustainability reward was already claimed."
+      });
+      return;
+    }
+
+    const pointsAwarded = sustainabilityActionPoints(reward.referenceAmountCents);
+    setState((previous) => ({
+      ...previous,
+      sustainabilityClaims: [
+        {
+          id: makeId("claim"),
+          userId: currentUser.id,
+          rewardId: reward.id,
+          timeLabel: "Now"
+        },
+        ...previous.sustainabilityClaims
+      ],
+      pointsEntries: addPointsEntry(previous.pointsEntries, {
+        userId: currentUser.id,
+        kind: "earn",
+        source: "sustainability_bonus",
+        label: reward.title,
+        detail: "5% sustainable action reward",
+        points: pointsAwarded,
+        remainingPoints: pointsAwarded,
+        timeLabel: "Now"
+      }),
+      activities: [
+        {
+          id: makeId("activity"),
+          userId: currentUser.id,
+          title: reward.title,
+          detail: `Sustainable choice • +${pointsAwarded} pts`,
+          amountCents: 0,
+          tone: "neutral",
+          timeLabel: "Now"
+        },
+        ...previous.activities
+      ]
+    }));
+    addNotice({
+      tone: "success",
+      text: `${reward.title} claimed. +${pointsAwarded} points.`
+    });
   }
 
   function handleCreateBatch() {
@@ -1060,12 +1690,8 @@ export function MobileWalletApp() {
                         <strong>{currentGuestTopUpCount}</strong>
                       </div>
                       <div className="profile-metric">
-                        <span>Next point</span>
-                        <strong>
-                          {nextPointRemainingCents === 10000
-                            ? formatCurrency(10000)
-                            : formatCurrency(nextPointRemainingCents)}
-                        </strong>
+                        <span>Booked hotels</span>
+                        <strong>{currentGuestHotelBookings.length}</strong>
                       </div>
                       <div className="profile-metric">
                         <span>Last activity</span>
@@ -1115,11 +1741,196 @@ export function MobileWalletApp() {
                   ) : null}
                 </div>
                 <div className="chip-row">
+                  {currentUser.role === "guest" ? (
+                    <button
+                      className="ghost-chip"
+                      onClick={() => setShowScanPanel((value) => !value)}
+                      type="button"
+                    >
+                      {showScanPanel ? "Hide scanner" : "Scan store QR"}
+                    </button>
+                  ) : null}
+                  {currentUser.role === "partner" ? (
+                    <button
+                      className="ghost-chip"
+                      onClick={() => setShowQrGenerator((value) => !value)}
+                      type="button"
+                    >
+                      {showQrGenerator ? "Hide QR" : "Generate payment QR"}
+                    </button>
+                  ) : null}
                   <button className="ghost-chip" onClick={signOut} type="button">
                     Switch account
                   </button>
                 </div>
               </section>
+
+              {currentUser.role === "guest" && showScanPanel ? (
+                <section className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <h2>Scan to pay</h2>
+                    </div>
+                    <span className="stat-pill">{activeStoreRequests.length} open</span>
+                  </div>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>QR code</span>
+                      <input
+                        placeholder="Paste or enter merchant code"
+                        type="text"
+                        value={scanCode}
+                        onChange={(event) => setScanCode(event.target.value.toUpperCase())}
+                      />
+                    </label>
+                  </div>
+                  {scannedStoreRequest ? (
+                    (() => {
+                      const preview = paymentBreakdown(scannedStoreRequest.amountCents);
+                      const qrCells = buildQrCells(scannedStoreRequest.code);
+
+                      return (
+                        <div className="qr-payment-panel">
+                          <div className="qr-shell compact-qr-shell">
+                            <div className="qr-grid">
+                              {qrCells.map((cell, index) => (
+                                <span
+                                  className={`qr-cell ${cell ? "qr-cell-on" : ""}`}
+                                  key={`${scannedStoreRequest.code}-${index}`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <div className="qr-payment-copy">
+                            <strong>{scannedStoreRequest.title}</strong>
+                            <p>
+                              {scannedStoreRequest.companyName} • {scannedStoreRequest.village}
+                            </p>
+                            <div className="profile-grid compact-profile-grid">
+                              <div className="profile-metric">
+                                <span>Amount</span>
+                                <strong>{formatCurrency(scannedStoreRequest.amountCents)}</strong>
+                              </div>
+                              <div className="profile-metric">
+                                <span>Settlement path</span>
+                                <strong>{storeRequestStatusLabel(scannedStoreRequest.status)}</strong>
+                              </div>
+                            </div>
+                            <div className="mini-meta">
+                              {preview.pointsUsed > 0
+                                ? `${formatCurrency(preview.cashPaidCents)} cash + ${preview.pointsUsed} pt`
+                                : "Pay fully from wallet balance"}
+                            </div>
+                            <button
+                              className="primary-button"
+                              onClick={() => handlePayStoreRequest(scannedStoreRequest)}
+                              type="button"
+                            >
+                              {preview.pointsUsed > 0 ? "Send with points" : "Send money"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : scanCode.trim().length > 0 ? (
+                    <div className="empty-card">QR code not found</div>
+                  ) : null}
+                  <div className="list-stack compact-list">
+                    {activeStoreRequests.map((request) => (
+                      <button
+                        className="coupon-row"
+                        key={request.id}
+                        onClick={() => setScanCode(request.code)}
+                        type="button"
+                      >
+                        <div>
+                          <strong>{request.title}</strong>
+                          <p>
+                            {request.companyName} • {request.village}
+                          </p>
+                        </div>
+                        <div className="list-side">
+                          <span className="amount">{formatCurrency(request.amountCents)}</span>
+                          <small>{request.code}</small>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {currentUser.role === "partner" && currentCompany && (showQrGenerator || currentCompanyActiveStoreRequest) ? (
+                <section className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <h2>Store QR</h2>
+                    </div>
+                    <span className="stat-pill">{currentCompanyOpenStoreRequestCount} open</span>
+                  </div>
+                  <div className="form-grid compact-grid">
+                    <label className="field">
+                      <span>Label</span>
+                      <input
+                        type="text"
+                        value={storeRequestTitle}
+                        onChange={(event) => setStoreRequestTitle(event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Amount</span>
+                      <input
+                        min="1"
+                        step="1"
+                        type="number"
+                        value={storeRequestAmount}
+                        onChange={(event) => setStoreRequestAmount(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <button className="primary-button" onClick={handleCreateStoreRequest} type="button">
+                    Generate QR request
+                  </button>
+                  {currentCompanyActiveStoreRequest ? (
+                    (() => {
+                      const qrCells = buildQrCells(currentCompanyActiveStoreRequest.code);
+
+                      return (
+                        <div className="qr-payment-panel">
+                          <div className="qr-shell compact-qr-shell">
+                            <div className="qr-grid">
+                              {qrCells.map((cell, index) => (
+                                <span
+                                  className={`qr-cell ${cell ? "qr-cell-on" : ""}`}
+                                  key={`${currentCompanyActiveStoreRequest.code}-${index}`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <div className="qr-payment-copy">
+                            <strong>{currentCompanyActiveStoreRequest.title}</strong>
+                            <p>{currentCompanyActiveStoreRequest.code}</p>
+                            <div className="profile-grid compact-profile-grid">
+                              <div className="profile-metric">
+                                <span>Amount</span>
+                                <strong>{formatCurrency(currentCompanyActiveStoreRequest.amountCents)}</strong>
+                              </div>
+                              <div className="profile-metric">
+                                <span>Status</span>
+                                <strong>{storeRequestStatusLabel(currentCompanyActiveStoreRequest.status)}</strong>
+                              </div>
+                            </div>
+                            <div className="mini-meta">
+                              Guests can scan or enter this code from their You page to pay instantly.
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="empty-card">Generate a payment QR to accept a wallet transfer.</div>
+                  )}
+                </section>
+              ) : null}
 
               {currentUser.role === "guest" && currentWallet ? (
                 <section className="surface-card">
@@ -1138,7 +1949,7 @@ export function MobileWalletApp() {
                     <div className="profile-metric profile-metric-strong">
                       <span>Rewards position</span>
                       <strong>{availablePointsBalance} pts</strong>
-                      <p>Earn 1 point for each CHF 100 paid in cash.</p>
+                      <p>Redeem value {formatCurrency(availablePointsValueCents)} at 100 pts = CHF 1.</p>
                     </div>
                   </div>
                   <div className="list-stack compact-list">
@@ -1160,6 +1971,145 @@ export function MobileWalletApp() {
                         <small>{currentGuestLatestActivity?.detail ?? "Fresh account"}</small>
                       </div>
                     </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {currentUser.role === "guest" ? (
+                <section className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <h2>Hotel rewards</h2>
+                    </div>
+                    <span className="stat-pill">10% back</span>
+                  </div>
+                  <div className="discover-list">
+                    {hotelOffers.map((offer, index) => {
+                      const existingBooking = currentGuestHotelBookings.find(
+                        (booking) => booking.hotelId === offer.id
+                      );
+                      const pointsAwarded = hotelRewardPoints(offer.amountCents);
+
+                      return (
+                        <button
+                          className={`discover-card discover-card-${index % 4}`}
+                          disabled={Boolean(existingBooking)}
+                          key={offer.id}
+                          onClick={() => handleBookHotel(offer)}
+                          type="button"
+                        >
+                          <div className="discover-card-head">
+                            <div className="chip-row featured-chip-row">
+                              <span className="soft-chip soft-chip-dark">{offer.village}</span>
+                              <span className="soft-chip soft-chip-dark">{offer.nights} nights</span>
+                            </div>
+                            <span className="market-price">{formatCurrency(offer.amountCents)}</span>
+                          </div>
+                          <div className="discover-card-copy">
+                            <strong>{offer.name}</strong>
+                            <p>{pointsAwarded} pts reward on confirmed booking.</p>
+                          </div>
+                          <div className="discover-card-footer">
+                            <span className="mini-meta">
+                              {existingBooking ? `Booked ${existingBooking.timeLabel}` : `${formatCurrency(pointsAwarded)} in points value`}
+                            </span>
+                            <span className="discover-link">{existingBooking ? "Booked" : "Book hotel"}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {currentUser.role === "guest" ? (
+                <section className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <h2>Sustainable bonus</h2>
+                    </div>
+                    <span className="stat-pill">{availableSustainabilityRewards.length} open</span>
+                  </div>
+                  <div className="list-stack">
+                    {sustainabilityRewards.map((reward) => {
+                      const claimed = currentGuestSustainabilityClaims.some(
+                        (claim) => claim.rewardId === reward.id
+                      );
+
+                      return (
+                        <button
+                          className={`coupon-row ${claimed ? "coupon-row-active" : ""}`}
+                          disabled={claimed}
+                          key={reward.id}
+                          onClick={() => handleClaimSustainabilityReward(reward)}
+                          type="button"
+                        >
+                          <div>
+                            <strong>{reward.title}</strong>
+                            <p>{reward.detail} • 5% reward</p>
+                          </div>
+                          <div className="list-side">
+                            <span className="amount">+{sustainabilityActionPoints(reward.referenceAmountCents)} pts</span>
+                            <small>{claimed ? "Claimed" : "Claim bonus"}</small>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {currentUser.role === "guest" ? (
+                <section className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <h2>Points ledger</h2>
+                    </div>
+                    <span className="stat-pill">{currentGuestPointsEntries.length}</span>
+                  </div>
+                  <div className="profile-grid">
+                    <div className="profile-metric">
+                      <span>Total earned</span>
+                      <strong>{currentGuestTotalEarnedPoints} pts</strong>
+                    </div>
+                    <div className="profile-metric">
+                      <span>Cashback earned</span>
+                      <strong>{currentGuestCashbackPoints} pts</strong>
+                    </div>
+                    <div className="profile-metric">
+                      <span>Hotel rewards</span>
+                      <strong>{currentGuestHotelPoints} pts</strong>
+                    </div>
+                    <div className="profile-metric">
+                      <span>Sustainable bonus</span>
+                      <strong>{currentGuestSustainabilityPoints} pts</strong>
+                    </div>
+                    <div className="profile-metric">
+                      <span>Redeemed</span>
+                      <strong>{currentGuestTotalRedeemedPoints} pts</strong>
+                    </div>
+                  </div>
+                  <div className="mini-meta">
+                    {currentGuestLatestPointsEntry
+                      ? `Latest: ${currentGuestLatestPointsEntry.label} • ${currentGuestLatestPointsEntry.detail}`
+                      : "No point activity yet"}
+                  </div>
+                  <div className="list-stack compact-list">
+                    {[...currentGuestPointsEntries].reverse().slice(0, 4).map((entry) => (
+                      <div className="list-row" key={entry.id}>
+                        <div>
+                          <strong>{entry.label}</strong>
+                          <p>{entry.detail}</p>
+                        </div>
+                        <div className="list-side">
+                          <span className={amountClass(entry.kind === "earn" ? "credit" : "debit")}>
+                            {entry.kind === "earn" ? "+" : "-"}
+                            {entry.points} pts
+                          </span>
+                          <small>{entry.timeLabel}</small>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </section>
               ) : null}
@@ -1289,8 +2239,8 @@ export function MobileWalletApp() {
                     </strong>
                   </div>
                   <div>
-                    <span>Payback points</span>
-                    <strong>{availablePointsBalance}</strong>
+                    <span>Spendable points</span>
+                    <strong>{availablePointsBalance} pts</strong>
                   </div>
                 </div>
               </section>
@@ -1298,29 +2248,39 @@ export function MobileWalletApp() {
               <section className="surface-card">
                 <div className="section-head">
                   <div>
-                    <h2>Payback</h2>
+                    <h2>Loyalty</h2>
                   </div>
-                  <span className="stat-pill">1 pt / CHF 100</span>
+                  <span className="stat-pill">2% / 5%</span>
                 </div>
                 <div className="reward-row">
                   <div>
-                    <p className="reward-label">Paid volume</p>
-                    <strong className="reward-value">{formatCurrency(currentWallet.lifetimePaidCents)}</strong>
+                    <p className="reward-label">Spendable points</p>
+                    <strong className="reward-value">{availablePointsBalance} pts</strong>
                   </div>
                   <div className="reward-side">
-                    <span className="reward-badge">{availablePointsBalance} pts</span>
+                    <span className="reward-badge">{formatCurrency(availablePointsValueCents)}</span>
                   </div>
                 </div>
-                <div className="reward-progress">
-                  <span
-                    className="reward-progress-fill"
-                    style={{ width: `${(pointsProgressCents / 10000) * 100}%` }}
-                  />
+                <div className="profile-grid">
+                  <div className="profile-metric">
+                    <span>Cashback</span>
+                    <strong>{currentGuestCashbackPoints} pts</strong>
+                  </div>
+                  <div className="profile-metric">
+                    <span>Hotels</span>
+                    <strong>{currentGuestHotelPoints} pts</strong>
+                  </div>
+                  <div className="profile-metric">
+                    <span>Sustainable</span>
+                    <strong>{currentGuestSustainabilityPoints} pts</strong>
+                  </div>
+                  <div className="profile-metric">
+                    <span>Redeemed</span>
+                    <strong>{currentGuestTotalRedeemedPoints} pts</strong>
+                  </div>
                 </div>
                 <div className="mini-meta">
-                  {nextPointRemainingCents === 10000
-                    ? "Start spending to unlock points"
-                    : `${formatCurrency(nextPointRemainingCents)} to next point`}
+                  100 points = CHF 1. Standard in-app payments return 2%. Sustainable experiences and actions return 5%. Hotel bookings return 10%.
                 </div>
               </section>
 
@@ -1514,7 +2474,7 @@ export function MobileWalletApp() {
                   </div>
                   <div className="mini-stat">
                     <span>Rate</span>
-                    <strong>1 pt = CHF 1</strong>
+                    <strong>2% / 5%</strong>
                   </div>
                   <button
                     className={`toggle-chip ${usePointsOnNextPayment ? "toggle-chip-active" : ""}`}
@@ -1527,7 +2487,9 @@ export function MobileWalletApp() {
               </section>
 
               {featuredExperience ? (
-                <section className="featured-market-card">
+                <section
+                  className={`featured-market-card ${featuredExperience.sustainable ? "featured-market-card-sustainable" : ""}`}
+                >
                   {(() => {
                     const preview = paymentPreview(featuredExperience);
 
@@ -1537,6 +2499,9 @@ export function MobileWalletApp() {
                           <div className="chip-row featured-chip-row">
                             <span className="soft-chip">Main deal</span>
                             <span className="soft-chip soft-chip-dark">{featuredExperience.category}</span>
+                            {featuredExperience.sustainable ? (
+                              <span className="soft-chip soft-chip-green">Sustainable • 5%</span>
+                            ) : null}
                             <span className="soft-chip soft-chip-dark">{featuredExperience.offer}</span>
                           </div>
                           <span className="market-price">{formatCurrency(featuredExperience.priceCents)}</span>
@@ -1565,7 +2530,9 @@ export function MobileWalletApp() {
                             <div className="mini-meta">
                               {preview.pointsUsed > 0
                                 ? `${formatCurrency(preview.cashPaidCents)} cash + ${preview.pointsUsed} pt`
-                                : "Pay instantly from wallet"}
+                                : featuredExperience.sustainable
+                                  ? "Pay instantly with 5% points back"
+                                  : "Pay instantly from wallet"}
                             </div>
                           </div>
                           <button
@@ -1602,7 +2569,7 @@ export function MobileWalletApp() {
 
                       return (
                         <button
-                          className={`discover-card discover-card-${index % 4}`}
+                          className={`discover-card discover-card-${index % 4} ${experience.sustainable ? "discover-card-sustainable" : ""}`}
                           key={experience.id}
                           onClick={() => handleDirectPayment(experience)}
                           type="button"
@@ -1610,6 +2577,9 @@ export function MobileWalletApp() {
                           <div className="discover-card-head">
                             <div className="chip-row featured-chip-row">
                               <span className="soft-chip soft-chip-dark">{experience.category}</span>
+                              {experience.sustainable ? (
+                                <span className="soft-chip soft-chip-green">5% sustainable</span>
+                              ) : null}
                               <span className="soft-chip soft-chip-dark">{experience.offer}</span>
                             </div>
                             <span className="market-price">{formatCurrency(experience.priceCents)}</span>
@@ -1627,7 +2597,9 @@ export function MobileWalletApp() {
                             <span className="mini-meta">
                               {preview.pointsUsed > 0
                                 ? `${formatCurrency(preview.cashPaidCents)} + ${preview.pointsUsed} pt`
-                                : "Wallet pay"}
+                                : experience.sustainable
+                                  ? "Wallet pay • 5% back"
+                                  : "Wallet pay"}
                             </span>
                             <span className="discover-link">
                               {preview.pointsUsed > 0 ? "Pay with points" : "Pay now"}
@@ -1723,8 +2695,8 @@ export function MobileWalletApp() {
                         <span className="amount">{formatCurrency(payment.amountCents)}</span>
                         <small>
                           {payment.pointsUsed > 0
-                            ? `${paymentStatusLabel(payment.status)} • ${formatCurrency(payment.cashPaidCents)} + ${payment.pointsUsed} pt`
-                            : paymentStatusLabel(payment.status)}
+                            ? `${payment.source === "store_request" ? "Store QR" : "Experience"} • ${paymentStatusLabel(payment.status)} • ${formatCurrency(payment.cashPaidCents)} + ${payment.pointsUsed} pt`
+                            : `${payment.source === "store_request" ? "Store QR" : "Experience"} • ${paymentStatusLabel(payment.status)}`}
                         </small>
                       </div>
                     </div>
@@ -1781,7 +2753,9 @@ export function MobileWalletApp() {
                         </div>
                         <div className="list-side">
                           <span className="amount">{formatCurrency(payment.amountCents)}</span>
-                          <small>{paymentStatusLabel(payment.status)}</small>
+                          <small>
+                            {payment.source === "store_request" ? "Store QR" : "Experience"} • {paymentStatusLabel(payment.status)}
+                          </small>
                         </div>
                       </div>
                     );

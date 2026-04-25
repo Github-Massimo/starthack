@@ -51,6 +51,7 @@ type Experience = {
   sustainable: boolean;
   isDeal: boolean;
   featured: boolean;
+  maxCoinsPaidCents: number;
 };
 
 type Activity = {
@@ -205,7 +206,8 @@ const experiences: Experience[] = [
     offer: "Save CHF 12",
     sustainable: true,
     isDeal: true,
-    featured: true
+    featured: true,
+    maxCoinsPaidCents: 6800
   },
   {
     id: "exp-cliff",
@@ -221,7 +223,8 @@ const experiences: Experience[] = [
     offer: "Weekend pick",
     sustainable: false,
     isDeal: true,
-    featured: false
+    featured: false,
+    maxCoinsPaidCents: 5400
   },
   {
     id: "exp-rental",
@@ -237,7 +240,8 @@ const experiences: Experience[] = [
     offer: "Bundle value",
     sustainable: false,
     isDeal: true,
-    featured: false
+    featured: false,
+    maxCoinsPaidCents: 4200
   },
   {
     id: "exp-brunch",
@@ -253,7 +257,8 @@ const experiences: Experience[] = [
     offer: "Most booked",
     sustainable: true,
     isDeal: false,
-    featured: false
+    featured: false,
+    maxCoinsPaidCents: 1800
   },
   {
     id: "exp-spa",
@@ -269,7 +274,8 @@ const experiences: Experience[] = [
     offer: "Late arrival slot",
     sustainable: true,
     isDeal: false,
-    featured: false
+    featured: false,
+    maxCoinsPaidCents: 3600
   },
   {
     id: "exp-stroll",
@@ -285,7 +291,8 @@ const experiences: Experience[] = [
     offer: "New route",
     sustainable: true,
     isDeal: false,
-    featured: false
+    featured: false,
+    maxCoinsPaidCents: 2600
   }
 ];
 
@@ -762,6 +769,9 @@ export function MobileWalletApp() {
   const [scanCode, setScanCode] = useState("");
   const [storeRequestTitle, setStoreRequestTitle] = useState("Counter payment");
   const [storeRequestAmount, setStoreRequestAmount] = useState("18");
+  const [selectedExperienceForCheckout, setSelectedExperienceForCheckout] = useState<Experience | null>(null);
+  const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<"no-points" | "some-points" | "max-coins" | null>(null);
+  const [checkoutPointsAmount, setCheckoutPointsAmount] = useState(0);
   const deferredExperienceSearch = useDeferredValue(experienceSearch);
 
   useEffect(() => {
@@ -986,6 +996,38 @@ export function MobileWalletApp() {
     };
   }
 
+  function checkoutPaymentBreakdown(experience: Experience, method: "no-points" | "some-points" | "max-coins") {
+    const totalPrice = experience.priceCents;
+    
+    if (method === "no-points") {
+      return {
+        pointsUsed: 0,
+        coinsPaidCents: 0,
+        cashPaidCents: totalPrice
+      };
+    }
+    
+    if (method === "some-points") {
+      const pointsToUse = Math.min(checkoutPointsAmount, availablePointsBalance);
+      const pointsValue = pointsValueCents(pointsToUse);
+      const cashNeeded = totalPrice - pointsValue;
+      return {
+        pointsUsed: pointsToUse,
+        coinsPaidCents: 0,
+        cashPaidCents: Math.max(0, cashNeeded)
+      };
+    }
+    
+    // max-coins
+    const maxCoinsToPay = Math.min(experience.maxCoinsPaidCents, totalPrice);
+    const remaining = totalPrice - maxCoinsToPay;
+    return {
+      pointsUsed: 0,
+      coinsPaidCents: maxCoinsToPay,
+      cashPaidCents: remaining
+    };
+  }
+
   function paymentPreview(experience: Experience) {
     return paymentBreakdown(experience.priceCents);
   }
@@ -1082,16 +1124,21 @@ export function MobileWalletApp() {
     activityDetail?: string;
     successText: string;
     requestId?: string;
+    pointsUsed?: number;
+    coinsPaidCents?: number;
   }) {
     if (!currentUser || currentUser.role !== "guest" || !currentWallet) {
       return false;
     }
 
-    const pointsUsed =
+    const pointsUsed = input.pointsUsed ?? (
       usePointsOnNextPayment
         ? Math.min(availablePointsBalance, input.amountCents)
-        : 0;
-    const cashPaidCents = input.amountCents - pointsValueCents(pointsUsed);
+        : 0
+    );
+    
+    const coinsPaidCents = input.coinsPaidCents ?? 0;
+    const cashPaidCents = input.amountCents - pointsValueCents(pointsUsed) - coinsPaidCents;
 
     if (currentWallet.availableBalanceCents < cashPaidCents) {
       addNotice({
@@ -1196,13 +1243,17 @@ export function MobileWalletApp() {
       text:
         pointsUsed > 0
           ? `Paid ${input.successText} with ${pointsUsed} point${pointsUsed > 1 ? "s" : ""} and ${formatCurrency(cashPaidCents)} cash.`
-          : earnedPoints > 0
-            ? `Paid ${input.successText}. +${earnedPoints} cashback points.`
-            : `Paid ${input.successText} from wallet balance.`
+          : coinsPaidCents > 0
+            ? `Paid ${input.successText} with ${formatCurrency(coinsPaidCents)} coins and ${formatCurrency(cashPaidCents)} cash.`
+            : earnedPoints > 0
+              ? `Paid ${input.successText}. +${earnedPoints} cashback points.`
+              : `Paid ${input.successText} from wallet balance.`
     });
     setActiveTab("more");
     setShowScanPanel(false);
     setScanCode("");
+    setSelectedExperienceForCheckout(null);
+    setCheckoutPaymentMethod(null);
     return true;
   }
 
@@ -1217,6 +1268,34 @@ export function MobileWalletApp() {
       cashbackRateBps: experience.sustainable ? 500 : 200,
       activityTitle: experience.companyName,
       successText: experience.title
+    });
+  }
+
+  function handleExperienceCheckout(experience: Experience) {
+    setSelectedExperienceForCheckout(experience);
+    setCheckoutPaymentMethod(null);
+    setCheckoutPointsAmount(0);
+  }
+
+  function handleCheckoutConfirm(experience: Experience, method: "no-points" | "some-points" | "max-coins") {
+    if (!currentUser || currentUser.role !== "guest") {
+      return;
+    }
+
+    const breakdown = checkoutPaymentBreakdown(experience, method);
+    
+    processGuestPayment({
+      title: experience.title,
+      companyId: experience.companyId,
+      companyName: experience.companyName,
+      village: experience.village,
+      amountCents: experience.priceCents,
+      source: "experience",
+      cashbackRateBps: experience.sustainable ? 500 : 200,
+      activityTitle: experience.companyName,
+      successText: experience.title,
+      pointsUsed: breakdown.pointsUsed,
+      coinsPaidCents: breakdown.coinsPaidCents
     });
   }
 
@@ -2537,7 +2616,7 @@ export function MobileWalletApp() {
                           </div>
                           <button
                             className="primary-button featured-button"
-                            onClick={() => handleDirectPayment(featuredExperience)}
+                            onClick={() => handleExperienceCheckout(featuredExperience)}
                             type="button"
                           >
                             {preview.pointsUsed > 0 ? "Pay with points" : "Pay now"}
@@ -2552,6 +2631,174 @@ export function MobileWalletApp() {
                   <div className="empty-card">No deals match this search</div>
                 </section>
               )}
+
+              {selectedExperienceForCheckout ? (
+                <section className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <h2>Payment options</h2>
+                    </div>
+                    <button
+                      className="ghost-chip"
+                      onClick={() => {
+                        setSelectedExperienceForCheckout(null);
+                        setCheckoutPaymentMethod(null);
+                      }}
+                      type="button"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="list-row">
+                    <div>
+                      <strong>{selectedExperienceForCheckout.title}</strong>
+                      <p>{selectedExperienceForCheckout.companyName} • {selectedExperienceForCheckout.village}</p>
+                    </div>
+                    <div className="list-side">
+                      <span className="amount">{formatCurrency(selectedExperienceForCheckout.priceCents)}</span>
+                    </div>
+                  </div>
+                  <div className="profile-grid">
+                    <div className="profile-metric">
+                      <span>Wallet balance</span>
+                      <strong>{currentWallet ? formatCurrency(currentWallet.availableBalanceCents) : "N/A"}</strong>
+                    </div>
+                    <div className="profile-metric">
+                      <span>Available points</span>
+                      <strong>{availablePointsBalance} pts</strong>
+                    </div>
+                    <div className="profile-metric">
+                      <span>Max coin payment</span>
+                      <strong>{formatCurrency(selectedExperienceForCheckout.maxCoinsPaidCents)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="chip-row">
+                    <button
+                      className={`ghost-chip ${checkoutPaymentMethod === "no-points" ? "ghost-chip-active" : ""}`}
+                      onClick={() => {
+                        setCheckoutPaymentMethod("no-points");
+                      }}
+                      type="button"
+                    >
+                      No points
+                    </button>
+                    <button
+                      className={`ghost-chip ${checkoutPaymentMethod === "some-points" ? "ghost-chip-active" : ""}`}
+                      onClick={() => {
+                        setCheckoutPaymentMethod("some-points");
+                      }}
+                      type="button"
+                    >
+                      Some points
+                    </button>
+                    <button
+                      className={`ghost-chip ${checkoutPaymentMethod === "max-coins" ? "ghost-chip-active" : ""}`}
+                      onClick={() => {
+                        setCheckoutPaymentMethod("max-coins");
+                      }}
+                      type="button"
+                    >
+                      Max coins
+                    </button>
+                  </div>
+
+                  {checkoutPaymentMethod === "no-points" ? (
+                    (() => {
+                      const breakdown = checkoutPaymentBreakdown(selectedExperienceForCheckout, "no-points");
+                      return (
+                        <div className="profile-grid">
+                          <div className="profile-metric">
+                            <span>Payment method</span>
+                            <strong>Wallet only</strong>
+                          </div>
+                          <div className="profile-metric">
+                            <span>Coins</span>
+                            <strong>{formatCurrency(0)}</strong>
+                          </div>
+                          <div className="profile-metric">
+                            <span>Cash from wallet</span>
+                            <strong>{formatCurrency(breakdown.cashPaidCents)}</strong>
+                          </div>
+                          <div className="profile-metric">
+                            <span>Points used</span>
+                            <strong>0 pts</strong>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : checkoutPaymentMethod === "some-points" ? (
+                    (() => {
+                      const breakdown = checkoutPaymentBreakdown(selectedExperienceForCheckout, "some-points");
+                      const maxPoints = Math.min(availablePointsBalance, selectedExperienceForCheckout.priceCents);
+                      return (
+                        <div>
+                          <div className="form-grid compact-grid">
+                            <label className="field">
+                              <span>Points to use (max {maxPoints})</span>
+                              <input
+                                min="0"
+                                max={maxPoints}
+                                type="number"
+                                value={checkoutPointsAmount}
+                                onChange={(event) => setCheckoutPointsAmount(Math.max(0, Math.min(maxPoints, Number(event.target.value))))}
+                              />
+                            </label>
+                          </div>
+                          <div className="profile-grid">
+                            <div className="profile-metric">
+                              <span>Coins</span>
+                              <strong>{formatCurrency(0)}</strong>
+                            </div>
+                            <div className="profile-metric">
+                              <span>Cash from wallet</span>
+                              <strong>{formatCurrency(breakdown.cashPaidCents)}</strong>
+                            </div>
+                            <div className="profile-metric">
+                              <span>Points used</span>
+                              <strong>{checkoutPointsAmount} pts</strong>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : checkoutPaymentMethod === "max-coins" ? (
+                    (() => {
+                      const breakdown = checkoutPaymentBreakdown(selectedExperienceForCheckout, "max-coins");
+                      return (
+                        <div className="profile-grid">
+                          <div className="profile-metric">
+                            <span>Coins to pay</span>
+                            <strong>{formatCurrency(breakdown.coinsPaidCents)}</strong>
+                          </div>
+                          <div className="profile-metric">
+                            <span>Cash from wallet</span>
+                            <strong>{formatCurrency(breakdown.cashPaidCents)}</strong>
+                          </div>
+                          <div className="profile-metric">
+                            <span>Points used</span>
+                            <strong>0 pts</strong>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : null}
+
+                  {checkoutPaymentMethod ? (
+                    <button
+                      className="primary-button"
+                      onClick={() => {
+                        if (checkoutPaymentMethod) {
+                          handleCheckoutConfirm(selectedExperienceForCheckout, checkoutPaymentMethod);
+                        }
+                      }}
+                      type="button"
+                    >
+                      Confirm payment
+                    </button>
+                  ) : null}
+                </section>
+              ) : null}
 
               <section className="surface-card">
                 <div className="section-head">
@@ -2571,7 +2818,7 @@ export function MobileWalletApp() {
                         <button
                           className={`discover-card discover-card-${index % 4} ${experience.sustainable ? "discover-card-sustainable" : ""}`}
                           key={experience.id}
-                          onClick={() => handleDirectPayment(experience)}
+                          onClick={() => handleExperienceCheckout(experience)}
                           type="button"
                         >
                           <div className="discover-card-head">
@@ -2633,6 +2880,9 @@ export function MobileWalletApp() {
                           <p>
                             {experience.category} • {experience.village} • {experience.duration}
                           </p>
+                          <p className="mini-meta">
+                            Max coin payment: {formatCurrency(experience.maxCoinsPaidCents)}
+                          </p>
                         </div>
                         <div className="list-side">
                           <span className="amount">{formatCurrency(experience.priceCents)}</span>
@@ -2640,6 +2890,9 @@ export function MobileWalletApp() {
                         </div>
                       </div>
                     ))}
+                </div>
+                <div className="mini-meta">
+                  Guests will see payment options: no points, some points, or max coins. You set the max coins per experience above.
                 </div>
               </section>
             </>
